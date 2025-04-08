@@ -5,8 +5,8 @@
 #define START_IR_TIMER() (TCCR1B =  _BV(CS11)) // 16MHz / 8 = 0.5us ticks
 #define STOP_IR_TIMER()  (TCCR1B = 0)
 
-const IR_Protocol_t* IR_CurProtocol = &IRProt_3DVision;
-SyncMode_t IR_SyncMode = SYNCMODE_NONE;
+const IR_Protocol_t* IR_CurProtocol = &Direct_Control;
+SyncMode_t IR_SyncMode = SYNCMODE_DRIVER;
 
 static volatile bool emitterActive = false;
 static bool emitterActive_last = false;
@@ -37,7 +37,7 @@ void IR_Init(void)
 	TIMSK1 = 0; // All interrupts disabled
 	TIFR1 = 0xFF; // Clear pending interrupt flags if any
 
-	IR_SetSyncMode(SYNCMODE_COMBINED);
+	IR_SetSyncMode(SYNCMODE_FREERUN);
 }
 
 void IR_Update(uint32_t curTime)
@@ -46,7 +46,7 @@ void IR_Update(uint32_t curTime)
 	{
 		// Send without any sync source - good for testing glasses
 		uint16_t delta = curTime-lastFrame;
-		if (delta >= 9) // 111.(1)Hz
+		if (delta >= 1000) // 111.(1)Hz
 		{
 			IR_SetEye(!curEye);
 			IR_StartFrame();
@@ -115,14 +115,28 @@ void IR_StartFrame(void)
 
 static void SendToken(uint8_t token)
 {
-	if (IR_CurProtocol->sizes[token] == 0) // Check if token exists
-		return;
-	curToken = token;
+	// if(curEye == EYE_LEFT)
+	// {
+	// 	bitClear(PORT_LCD, LCD_RIGHT);
+	// 	bitSet(PORT_LCD, LCD_LEFT);
+	// }
+	// else{
+	// 	bitClear(PORT_LCD, LCD_LEFT);
+	// 	bitSet(PORT_LCD, LCD_RIGHT);
+	// }
 
-	curPulse = IR_CurProtocol->indices[token]; // Get timing array start index
-	lastPulse = curPulse + IR_CurProtocol->sizes[token];
+	bitSet(PORT_LCD, LCD_LEFT);
+	bitSet(PORT_LCD, LCD_RIGHT);
+
+	// if (IR_CurProtocol->sizes[token] == 0) // Check if token exists
+	// 	return;
+	// curToken = token;
+
+	// curPulse = IR_CurProtocol->indices[token]; // Get timing array start index
+	// lastPulse = curPulse + IR_CurProtocol->sizes[token];
 
 	bitClear(PORT_LED_IR, LED_IR);
+
 	TCNT1 = 0;
 	OCR1A = FRAME_PAN; // Token pan/delay
 	//OCR1B = 0x00FF;
@@ -136,46 +150,67 @@ static void SendToken(uint8_t token)
 
 ISR(TIMER1_COMPA_vect) // IR pulse rising edge
 {
-	bitSet(PORT_LED_IR, LED_IR);
+	// bitSet(PORT_LED_IR, LED_IR);
+
+	if(curEye == EYE_LEFT)
+	{
+		bitClear(PORT_LCD, LCD_LEFT);
+	}
+	else{
+		bitClear(PORT_LCD, LCD_RIGHT);
+	}
 	
-	OCR1B = OCR1A + (IR_CurProtocol->timings[curPulse++] * 2); // Pulse duration
+	// OCR1B = OCR1A + (IR_CurProtocol->timings[curPulse++] * 2); // Pulse duration
+	// OCR1B = OCR1A + ( 5000000 * 2) ; // Shutter Open Duration
+	OCR1B = OCR1A + FRAME_DURATION ; // Shutter Open Duration
+
 	bitSet(TIMSK1, OCIE1B); // Enable falling edge interrupt
 	bitClear(TIMSK1, OCIE1A); // Disable this interrupt
 }
+
 ISR(TIMER1_COMPB_vect) // IR pulse falling edge
 {
-	bitClear(PORT_LED_IR, LED_IR);
+	// bitClear(PORT_LED_IR, LED_IR);
 
-	if (curPulse == lastPulse) // Token finished
+	if(curEye == EYE_LEFT)
 	{
-		uint8_t nextsize;
-		bool hasnext = (curToken & 1) == 0; // end of shutter opening token
-		if (hasnext)
-		{
-			nextsize = IR_CurProtocol->sizes[curToken+1];
-			hasnext = nextsize > 0; // closing token exists
-		}
-		if (hasnext)
-		{
-			OCR1A = OCR1B + FRAME_DURATION;
-			bitSet(TIMSK1, OCIE1A); // Enable rising edge interrupt
-			curToken++;
-			curPulse = IR_CurProtocol->indices[curToken]; // Get timing array start index
-			lastPulse = curPulse + nextsize;
-			//bitSet(PORTB, 5); // Frame start debug
-		}
-		else
-		{
-			//bitClear(PORTB, 5); // Frame end debug
-			STOP_IR_TIMER();
-			bitClear(PORT_LED_EYE, LED_EYE); // Active low
-		}
+		bitSet(PORT_LCD, LCD_LEFT);
 	}
-	else
-	{
-		OCR1A = OCR1B + (IR_CurProtocol->timings[curPulse++] * 2);  // Time until next pulse
-		bitSet(TIMSK1, OCIE1A); // Enable rising edge interrupt
+	else{
+		bitSet(PORT_LCD, LCD_RIGHT);
 	}
+
+	// if (curPulse == lastPulse) // Token finished
+	// {
+	// 	uint8_t nextsize;
+	// 	bool hasnext = (curToken & 1) == 0; // end of shutter opening token
+	// 	if (hasnext)
+	// 	{
+	// 		nextsize = IR_CurProtocol->sizes[curToken+1];
+	// 		hasnext = nextsize > 0; // closing token exists
+	// 	}
+	// 	if (hasnext)
+	// 	{
+	// 		OCR1A = OCR1B + FRAME_DURATION;
+	// 		bitSet(TIMSK1, OCIE1A); // Enable rising edge interrupt
+	// 		curToken++;
+	// 		curPulse = IR_CurProtocol->indices[curToken]; // Get timing array start index
+	// 		lastPulse = curPulse + nextsize;
+	// 		//bitSet(PORTB, 5); // Frame start debug
+	// 	}
+	// 	else
+	// 	{
+	// 		//bitClear(PORTB, 5); // Frame end debug
+	// 		STOP_IR_TIMER();
+	// 		bitClear(PORT_LED_EYE, LED_EYE); // Active low
+	// 	}
+	// }
+	// else
+	// {
+	// 	OCR1A = OCR1B + (IR_CurProtocol->timings[curPulse++] * 2);  // Time until next pulse
+	// 	bitSet(TIMSK1, OCIE1A); // Enable rising edge interrupt
+	// }
+	STOP_IR_TIMER();
 	bitClear(TIMSK1, OCIE1B); // Disable this interrupt
 }
 

@@ -23,6 +23,19 @@ const IR_Protocol_t IRProt_Xpand = {
 	.indices = { 0,0, 5,0 },
 	.timings = { 18,20,18,20,18,  18,60,18 }
 };
+
+const IR_Protocol_t Direct_Control = {
+	.sizes   = { 1,0, 1,0 },
+	.indices = { 0,0, 1,0 },
+	.timings = { 800 ,  10 }
+};
+
+const IR_Protocol_t IRProt_DLPLink = {
+	.sizes   = { 2,0, 2,0 },
+	.indices = { 0,0, 1,0 },
+	.timings = { 25,  260,25 }
+};
+
 const IR_Protocol_t IRProt_3DVision = {
 	.sizes   = { 3,3, 1,3 },
 	.indices = { 0,3, 6,7 },
